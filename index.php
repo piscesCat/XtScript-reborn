@@ -1,37 +1,42 @@
 <?php
 
-$DIR = dirname ( __FILE__ );
+$DIR = __DIR__;
 
-//dummy xtgem functions
-require ( $DIR .'/xtgem.php' );
+require_once $DIR . '/xtgem.php';
+require_once $DIR . '/script.php';
 
-//main xtscript file
-require ( $DIR .'/script.php' );
-
-//example content
-$contents = file_get_contents ( $DIR .'/examples.txt' );
-
-//example site
-$url = 'test.xtgem.com/index';
-$info = array ();
-$url_vars = array ();
-
-if ( preg_match_all ( '#<!--parser:xtscript-->(.+?)<!--/parser:xtscript-->#mis', $contents, $sm ) )
-{
-    $script = new script ( $url, $info, $url_vars );
-    $version = 1;
-
-    try
-    { 
-        foreach ( $sm [ 1 ] as $key => $part )
-        {   
-            $contents = preg_replace ( '#'. preg_quote ( $sm [ 0 ] [ $key ], '#' ) .'#', $script -> eval_syntax ( $part, $version ), $contents, 1 );
-        }
-    }
-    catch ( SyntaxException $e )
-    {
-        die ( $e -> errorMessage ( $syntax, $e ) );
-    }
+$contents = @file_get_contents($DIR . '/examples.txt');
+if ($contents === false) {
+    http_response_code(500);
+    die('Unable to load examples.');
 }
 
-die ( $contents );
+$url = 'test.xtgem.com/index';
+$info = array();
+$url_vars = array();
+$script = new script($url, $info, $url_vars);
+$script->set_instance_allowed_plugins(array('cookie'));
+$version = 1;
+
+try {
+    // Callback replacements are literal, so XtScript output containing $1 or
+    // backslashes cannot be reinterpreted as preg_replace backreferences.
+    $contents = preg_replace_callback(
+        '#<!--parser:xtscript-->(.*?)<!--/parser:xtscript-->#mis',
+        static function ($match) use ($script, $version) {
+            return $script->eval_syntax($match[1], $version);
+        },
+        $contents
+    );
+
+    if ($contents === null) {
+        throw new RuntimeException('Parser block replacement failed.');
+    }
+} catch (SyntaxException $e) {
+    die($e->errorMessage($script, $e));
+} catch (Throwable $e) {
+    http_response_code(500);
+    die('XtScript Error.');
+}
+
+die($contents);
